@@ -21,7 +21,7 @@ jobs:
     - name: Resmi Linux LTS 6.18.36 Kaynak Kodunu Çek
       run: |
         # Doğrudan 19 Haziran 2026 tarihli v6.18.36 etiketini (tag) çekerek sürümü sabitliyoruz
-        git clone --depth=1 --branch v6.18.36 https://git.kernel.org/pub/scm/linux/kernel/git/longterm/linux.git linux-source
+        git clone --depth=1 --branch v6.18.36 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-source
 
     - name: lsmod.txt ve Temel Config Filtrelemesi
       run: |
