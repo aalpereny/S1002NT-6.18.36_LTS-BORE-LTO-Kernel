@@ -1,4 +1,4 @@
-name: HP Victus Arch LTS 6.18.36 & Nvidia Open Kernel Builder
+name: Build Laptop LTS Kernel
 
 on:
   push:
@@ -6,81 +6,57 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-laptop-lts-6-18-36:
-    runs-on: ubuntu-latest
+  build-kernel:
+    runs-on: ubuntu-24.04
+    name: build-laptop-lts-6-18-36
 
     steps:
-    - name: Depoyu Klonla
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Derleme Araçlarını Kur (Clang/LLVM)
+    - name: Install Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev clang llvm lld bc cpio
+        sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev clang llvm lld bc cpio kmod
 
-    - name: Resmi Linux LTS 6.18.36 Kaynak Kodunu Çek
+    - name: Clone Linux Kernel Source
       run: |
-        # 19 Haziran 2026 tarihli v6.18.36 etiketini (tag) çekerek sürümü sabitliyoruz
+        # v6.18.36 sürümünü linux-source klasörüne çekiyoruz
         git clone --depth=1 --branch v6.18.36 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-source
 
-    - name: lsmod.txt ve Temel Config Filtrelemesi
+    - name: Configure Kernel (localmodconfig)
       run: |
         cd linux-source
-        # Varsayılan x86_64 konfigürasyon şablonunu oluştur
+        # Varsayılan x86_64 şablonunu oluştur
         make defconfig
         
-        # Deponun ana dizinindeki lsmod.txt dosyasını içeri aktar ve donanımına göre sistemi buda
+        # lsmod.txt dosyasını kopyala ve CI'ın takılmaması için otomatik onay (yes "") ile buda
         cp ../lsmod.txt .
-        make LSMOD=lsmod.txt localmodconfig
+        yes "" | make LSMOD=lsmod.txt localmodconfig
 
-    - name: Thin-LTO ve Sürücü Kararlılık Ayarları
+    - name: Compile Kernel with LLVM/Clang
       run: |
         cd linux-source
-        
-        # 1. Doğru Clang LTO Değişkenlerini Ayarlıyoruz
-        scripts/config --disable CONFIG_LTO_NONE
-        scripts/config --disable CONFIG_LTO_CLANG_FULL
-        scripts/config --enable CONFIG_LTO_CLANG_THIN
-        
-        # 2. Nvidia Open ve Kararlılık Ayarları
-        scripts/config --enable CONFIG_MODULES
-        scripts/config --enable CONFIG_SYSFS
-        scripts/config --enable CONFIG_PROC_FS
-        scripts/config --enable CONFIG_X86_PAT
-        scripts/config --disable CONFIG_DEBUG_INFO_BTF
+        # İşlemci çekirdek sayısına göre hızlıca derle
+        make -j$(nproc) LLVM=1 bzImage modules
 
-        # 3. İnteraktif soruları engelle ve Thin-LTO bağımlılıklarını otomatik onayla
-        make LLVM=1 olddefconfig
-
-    - name: Çekirdeği Clang + Donanımsal Zen 4 Optimizasyonuyla Derle
+    - name: Prepare Arch Linux Compatible Artifact Directory
       run: |
+        # Çıktıların toplanacağı temiz bir klasör oluşturuyoruz
+        mkdir -p kernel-artifacts
+        
         cd linux-source
-        # Clang derleyicisine tüm vanilla 6.18.36 kodlarını doğrudan Ryzen 7 8845HS (znver4) için işlemesini söylüyorsunuz
-        make -j$(nproc) CC=clang LD=ld.lld LLVM=1 KCFLAGS="-march=znver4 -O3"
+        # Çekirdek imajını, config ve System.map dosyalarını kopyala
+        cp arch/x86/boot/bzImage ../kernel-artifacts/vmlinuz-linux-laptop
+        cp .config ../kernel-artifacts/config-linux-laptop
+        cp System.map ../kernel-artifacts/System.map-linux-laptop
+        
+        # Derlenen tüm modülleri bu klasörün içine yapılandırarak yükle
+        make LLVM=1 modules_install INSTALL_MOD_PATH=../kernel-artifacts
 
-    - name: Dağıtım Paketini Hazırla (Kernel + Headers)
-      run: |
-        mkdir -p build_output/boot
-        cd linux-source
-        
-        # 1. Derlenen 6.18.36 çekirdek imajını kopyala
-        cp arch/x86/boot/bzImage ../build_output/boot/vmlinuz-linux-lts-6.18.36
-        
-        # 2. Sistem modüllerini paket içine yükle
-        make modules_install INSTALL_MOD_PATH=../build_output/
-        
-        # 3. nvidia-open-dkms'in uyanırken ihtiyaç duyacağı HEADERS (Başlık) dosyaları
-        KERNEL_VER=$(make kernelrelease)
-        mkdir -p ../build_output/usr/lib/modules/$KERNEL_VER/build
-        cp --parents Makefile .config Module.symvers System.map arch/x86/Makefile ../build_output/usr/lib/modules/$KERNEL_VER/build/
-        cp -r --parents arch/x86/include include scripts ../build_output/usr/lib/modules/$KERNEL_VER/build/
-        
-        cd ..
-        # Tüm yapıyı tek bir arşivde sıkıştır
-        tar -czf linux-lts-6-18-36-laptop.tar.gz build_output/
-
-    - name: Hazır Çekirdek Paketini Yayınla
+    - name: Upload Kernel Artifacts to GitHub
       uses: actions/upload-artifact@v4
       with:
-        name: laptop-lts-6.18.36-kernel
-        path: linux-lts
+        name: laptop-lts-kernel-package
+        path: kernel-artifacts/
+        if-no-files-found: error
