@@ -48,11 +48,11 @@ jobs:
       run: |
         cd linux-source
         # Varsayılan temel konfigürasyonu oluştur
-        make defconfig
+        make LLVM=1 defconfig
         
         # Ana dizindeki lsmod.txt dosyasını kopyala ve sadece bu donanımları göm
         cp ../lsmod.txt .
-        yes "" | make LSMOD=lsmod.txt localmodconfig
+        yes "" | make LLVM=1 LSMOD=lsmod.txt localmodconfig
 
     - name: 6. Inject ThinLTO, Custom Name & Strip All Debug Files
       run: |
@@ -99,7 +99,7 @@ jobs:
         ./scripts/config --enable CONFIG_LTO_CLANG_THIN
         
         # Tüm bu ayarları çekirdek mimarisine kilitle
-        make olddefconfig
+        make LLVM=1 olddefconfig
 
     - name: 7. Compile Kernel with LLVM/Clang (ThinLTO & x86-64-v4)
       run: |
